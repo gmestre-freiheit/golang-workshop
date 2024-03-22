@@ -1,10 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 )
 
+// I just convert json to golang on web
+// https://transform.tools/json-to-go
 type PlanetsResponse struct {
 	Count    int         `json:"count"`
 	Next     string      `json:"next"`
@@ -30,6 +35,45 @@ type Planet struct {
 	URL            string    `json:"url"`
 }
 
+func getPlanetsList() ([]Planet, error) {
+	var planets []Planet
+	planetsRequestURI := "https://swapi.dev/api/planets/"
+	client := &http.Client{}
+	for planetsRequestURI != "" {
+		req, err := http.NewRequest("GET", planetsRequestURI, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		var planet *PlanetsResponse
+		err = json.Unmarshal(body, &planet)
+		if err != nil {
+			return nil, err
+		}
+		planetsRequestURI = planet.Next
+		planets = append(planets, planet.Results...)
+	}
+	return planets, nil
+}
+
 func main() {
-	fmt.Printf("Hello world!\n")
+	planets, err := getPlanetsList()
+	if err != nil {
+		panic(fmt.Errorf("unable to get the planets list %w", err))
+	}
+
+	for i, planet := range planets {
+		fmt.Printf("Planet %v is named %v\n", i+1, planet.Name)
+	}
 }
