@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -91,13 +92,71 @@ func getPlanetsList() ([]Planet, error) {
 	return planets, nil
 }
 
-func main() {
+func getResidentsOfPlanetsInFilms(filmsCount int, planets []Planet) ([]PlanetwithResidents, error) {
+	client := &http.Client{}
+	var planetswithResidents []PlanetwithResidents
+	for _, planet := range planets {
+		if len(planet.Films) > filmsCount {
+			var planetWithResidents PlanetwithResidents
+			planetWithResidents.PlanetName = planet.Name
+			for _, residentURI := range planet.Residents {
+				req, err := http.NewRequest("GET", residentURI, nil)
+				if err != nil {
+					return nil, err
+				}
+
+				resp, err := client.Do(req)
+				if err != nil {
+					return nil, err
+				}
+				defer resp.Body.Close()
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return nil, err
+				}
+				var resident *Resident
+				err = json.Unmarshal(body, &resident)
+				if err != nil {
+					return nil, err
+				}
+				planetWithResidents.ResidentsNames = append(planetWithResidents.ResidentsNames, resident.Name)
+			}
+			planetswithResidents = append(planetswithResidents, planetWithResidents)
+		}
+	}
+	return planetswithResidents, nil
+}
+
+func residentsInFilmsHandler(w http.ResponseWriter, r *http.Request) {
+	filmsCountParam := r.URL.Query().Get("filmsCount")
+	filmsCount, err := strconv.Atoi(filmsCountParam)
+	if err != nil {
+		http.Error(w, "Invalid parameter 'filmsCount'", http.StatusBadRequest)
+		return
+	}
 	planets, err := getPlanetsList()
 	if err != nil {
-		panic(fmt.Errorf("unable to get the planets list %w", err))
+		http.Error(w, "Unable to get the planets list", http.StatusInternalServerError)
+	}
+	planetswithResidents, err := getResidentsOfPlanetsInFilms(filmsCount, planets)
+	if err != nil {
+		http.Error(w, "Unable to get the residents of the different planets", http.StatusInternalServerError)
+	}
+	jsonResponse, err := json.Marshal(planetswithResidents)
+	if err != nil {
+		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+		return
 	}
 
-	for i, planet := range planets {
-		fmt.Printf("Planet %v is named %v\n", i+1, planet.Name)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
+}
+
+func main() {
+	http.HandleFunc("/residentsInPlanets", residentsInFilmsHandler)
+	fmt.Println("Server listening on port 8080...")
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		panic(fmt.Errorf("error starting server: %w", err))
 	}
 }
